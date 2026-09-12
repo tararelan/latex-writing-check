@@ -1,0 +1,189 @@
+{
+  "name": "latex-writing-check",
+  "displayName": "LaTeX Writing Check",
+  "description": "Lightweight prose-quality checks for LaTeX documents, backed by Ollama (local, free) or your own API key for OpenAI, Claude, Gemini, or DeepSeek.",
+  "version": "0.1.0",
+  "publisher": "tararelan",
+  "license": "MIT",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tararelan/latex-writing-check.git"
+  },
+  "keywords": [
+    "latex",
+    "spellcheck",
+    "grammar",
+    "writing",
+    "linter"
+  ],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:latex"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "latex",
+        "extensions": [
+          ".tex",
+          ".latex",
+          ".ltx"
+        ],
+        "aliases": [
+          "LaTeX"
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "latexWritingCheck.checkDocument",
+        "title": "LaTeX Writing Check: Check Whole Document"
+      },
+      {
+        "command": "latexWritingCheck.checkParagraph",
+        "title": "LaTeX Writing Check: Check Current Paragraph"
+      },
+      {
+        "command": "latexWritingCheck.checkSelection",
+        "title": "LaTeX Writing Check: Check Selected Text"
+      },
+      {
+        "command": "latexWritingCheck.addWordToDictionary",
+        "title": "LaTeX Writing Check: Add Word to Dictionary"
+      },
+      {
+        "command": "latexWritingCheck.setApiKey",
+        "title": "LaTeX Writing Check: Set API Key"
+      },
+      {
+        "command": "latexWritingCheck.clearApiKey",
+        "title": "LaTeX Writing Check: Clear API Key"
+      }
+    ],
+    "configuration": {
+      "title": "LaTeX Writing Check",
+      "properties": {
+        "latexWritingCheck.provider": {
+          "type": "string",
+          "enum": [
+            "ollama",
+            "openai",
+            "claude",
+            "gemini",
+            "deepseek"
+          ],
+          "enumDescriptions": [
+            "Local model via Ollama -- free, private, needs Ollama installed",
+            "OpenAI API -- needs an API key (Set API Key command) and latexWritingCheck.model",
+            "Anthropic Claude API -- needs an API key (Set API Key command) and latexWritingCheck.model",
+            "Google Gemini API -- needs an API key (Set API Key command) and latexWritingCheck.model",
+            "DeepSeek API -- needs an API key (Set API Key command) and latexWritingCheck.model"
+          ],
+          "default": "ollama",
+          "description": "Which LLM backend runs the grammar/passive/wordy/unclear/uncited/repetition checks. Ollama is local and free; the others send paragraph text to a third-party API using your own key -- see the README for what that means for privacy and cost before switching."
+        },
+        "latexWritingCheck.confirmCloudCalls": {
+          "type": "boolean",
+          "default": true,
+          "description": "When latexWritingCheck.provider is a cloud provider, ask for confirmation before sending anything: once per VS Code session for the first automatic/typed check, and again before each \"Check Whole Document\" / \"Check Selected Text\" run naming how many calls it's about to make. Set false to skip both dialogs (e.g. once you're comfortable with the provider you've picked). Has no effect when provider is \"ollama\"."
+        },
+        "latexWritingCheck.model": {
+          "type": "string",
+          "default": "qwen2.5:1.5b-instruct",
+          "description": "Model id for whichever provider is selected. For Ollama this is a model tag (default qwen2.5:1.5b-instruct -- must be pulled first with `ollama pull`). For every other provider there is NO default -- model names for OpenAI/Claude/Gemini/DeepSeek change too often to hardcode reliably, so you must set this explicitly to a model id that provider currently supports."
+        },
+        "latexWritingCheck.ollamaUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:11434",
+          "description": "Base URL of your local Ollama server (only used when latexWritingCheck.provider is \"ollama\"). Use 127.0.0.1 rather than localhost -- Node's fetch can resolve \"localhost\" to the IPv6 loopback address first, which Ollama doesn't listen on by default, causing a \"fetch failed\" error even though Ollama is running and reachable everywhere else."
+        },
+        "latexWritingCheck.debounceMs": {
+          "type": "number",
+          "default": 2000,
+          "description": "How long to wait after you stop typing before checking the current paragraph."
+        },
+        "latexWritingCheck.checkOnType": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically check the current paragraph as you type (debounced). Disable to only check on command."
+        },
+        "latexWritingCheck.checkOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically run the full check (writing quality, spelling, section repetition, uncited claims) whenever you save the file."
+        },
+        "latexWritingCheck.dictionaryLocale": {
+          "type": "string",
+          "enum": [
+            "en",
+            "en-GB"
+          ],
+          "enumDescriptions": [
+            "American English (dictionary-en)",
+            "British English (dictionary-en-gb)"
+          ],
+          "default": "en-GB",
+          "description": "Spelling dictionary to use. Defaults to British English -- set to \"en\" for American spellings."
+        },
+        "latexWritingCheck.enableLLM": {
+          "type": "boolean",
+          "default": true,
+          "description": "Master switch for everything backed by an LLM (whichever latexWritingCheck.provider is selected): grammar, passive voice, wordy, unclear, and uncited-claim checks, plus the extra reused-wording pass on repetition. Set false to use this extension with no LLM backend configured at all -- spelling and the wording-overlap half of repetition (paraphrased/restated sentences) are local and keep working either way, and no network calls to any provider are made when this is off."
+        },
+        "latexWritingCheck.enableGrammar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Flag grammatical errors (subject-verb agreement, tense, articles, etc). Has no effect if enableLLM is false."
+        },
+        "latexWritingCheck.enablePassive": {
+          "type": "boolean",
+          "default": true,
+          "description": "Flag unnecessary passive voice. Has no effect if enableLLM is false."
+        },
+        "latexWritingCheck.enableWordy": {
+          "type": "boolean",
+          "default": true,
+          "description": "Flag wordy phrasing that could be tightened. Has no effect if enableLLM is false."
+        },
+        "latexWritingCheck.enableUnclear": {
+          "type": "boolean",
+          "default": true,
+          "description": "Flag ambiguous or hard-to-parse sentences. Has no effect if enableLLM is false."
+        },
+        "latexWritingCheck.enableUncited": {
+          "type": "boolean",
+          "default": true,
+          "description": "Flag factual/empirical claims with no nearby citation. Has no effect if enableLLM is false."
+        },
+        "latexWritingCheck.enableRepetition": {
+          "type": "boolean",
+          "default": true,
+          "description": "Flag phrasing reused across paragraphs within the same section (full-document check only). The wording-overlap (paraphrase) detector runs regardless of enableLLM; the extra reused-wording model pass only runs if enableLLM is also true."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "dictionary-en": "^4.0.0",
+    "dictionary-en-gb": "^3.0.0",
+    "nspell": "^2.1.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.x",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.x"
+  }
+}

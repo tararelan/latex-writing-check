@@ -1,0 +1,13 @@
+node_modules/
+out/
+*.vsix
+.vscode-test/
+*.log
+
+# LaTeX build byproducts (sample/ keeps only the .tex source)
+*.aux
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.log
+*.pdf
