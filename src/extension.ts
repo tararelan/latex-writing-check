@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { extractParagraphs, paragraphAt, ParagraphBlock } from './latexUtils';
-import { checkParagraph, checkSectionRepetition, WritingIssue, RepetitionIssue, LlmProvider, providerLabel, apiKeySecretKey } from './llmClient';
+import { checkParagraph, checkSectionRepetition, WritingIssue, RepetitionIssue, LlmProvider, providerLabel, apiKeySecretKey, needsApiKey, isLocalProvider } from './llmClient';
+import { checkRuleBased } from './ruleBasedChecks';
 import { findRepeatedSentences } from './repetition';
 import { spellcheckRange, addWordToDictionary, Misspelling } from './spellcheck';
 import { issueSignature, getIgnoredSet, addIgnored } from './ignoreStore';
@@ -43,7 +44,7 @@ interface CheckOptions {
 const SPELL_SOURCE = 'LaTeX Spell Check';
 const WRITING_SOURCE = 'LaTeX Writing Check';
 
-const ALL_PROVIDERS: LlmProvider[] = ['ollama', 'openai', 'claude', 'gemini', 'deepseek'];
+const ALL_PROVIDERS: LlmProvider[] = ['ollama', 'copilot', 'bundled', 'openai', 'claude', 'gemini', 'deepseek'];
 
 // Maps a writing-issue category to the config key that toggles it on/off.
 const CATEGORY_CONFIG_KEY: Record<string, string> = {
@@ -68,7 +69,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.text = '$(book) Writing check';
-  statusBarItem.tooltip = 'LaTeX Writing Check (LLM + spellcheck)';
+  statusBarItem.tooltip = 'LaTeX Writing Check (LLM + rule-based + spellcheck)';
   context.subscriptions.push(statusBarItem);
 
   context.subscriptions.push(
@@ -174,15 +175,16 @@ export function activate(context: vscode.ExtensionContext) {
   }
 }
 
-// ---------- API key management (cloud providers only -- Ollama needs none) ----------
+// ---------- API key management ----------
 // Keys are stored in VS Code's SecretStorage (context.secrets), never in a
 // plain settings.json string, since settings sync/backup and workspace
-// settings files aren't a safe place for a credential.
+// settings files aren't a safe place for a credential. Ollama, Copilot, and
+// the bundled local model need none of this (see needsApiKey in llmClient.ts).
 
 async function setApiKey(context: vscode.ExtensionContext) {
-  const cloudProviders = ALL_PROVIDERS.filter(p => p !== 'ollama');
+  const keyedProviders = ALL_PROVIDERS.filter(needsApiKey);
   const picked = await vscode.window.showQuickPick(
-    cloudProviders.map(p => ({ label: providerLabel(p), provider: p })),
+    keyedProviders.map(p => ({ label: providerLabel(p), provider: p })),
     { placeHolder: 'Which provider is this API key for?' }
   );
   if (!picked) return;
@@ -199,9 +201,9 @@ async function setApiKey(context: vscode.ExtensionContext) {
 }
 
 async function clearApiKey(context: vscode.ExtensionContext) {
-  const cloudProviders = ALL_PROVIDERS.filter(p => p !== 'ollama');
+  const keyedProviders = ALL_PROVIDERS.filter(needsApiKey);
   const picked = await vscode.window.showQuickPick(
-    cloudProviders.map(p => ({ label: providerLabel(p), provider: p })),
+    keyedProviders.map(p => ({ label: providerLabel(p), provider: p })),
     { placeHolder: 'Clear the stored API key for which provider?' }
   );
   if (!picked) return;
@@ -243,9 +245,10 @@ function countUncachedRepetitionCalls(blocks: ParagraphBlock[]): number {
 
 /**
  * Returns true to proceed. Only ever prompts (and only ever counts calls)
- * when the configured provider is a cloud one and enableLLM is on --
- * Ollama has no cost or third-party exposure to warn about, and if the LLM
- * checks are off entirely there's nothing to count.
+ * when the configured provider is a cloud one and enableLLM is on -- a
+ * local provider (Ollama or the bundled model) has no cost or third-party
+ * exposure to warn about, and if the LLM checks are off entirely there's
+ * nothing to count.
  */
 async function confirmBatchCloudRun(
   config: vscode.WorkspaceConfiguration,
@@ -253,7 +256,7 @@ async function confirmBatchCloudRun(
   repetitionBlocks: ParagraphBlock[]
 ): Promise<boolean> {
   const provider = config.get<LlmProvider>('provider', 'ollama');
-  if (provider === 'ollama' || !config.get<boolean>('enableLLM', true)) return true;
+  if (isLocalProvider(provider) || !config.get<boolean>('enableLLM', true)) return true;
   if (!config.get<boolean>('confirmCloudCalls', true)) return true;
 
   const writingCalls = countUncachedWritingCalls(writingBlocks);
@@ -356,7 +359,7 @@ async function checkDocument(context: vscode.ExtensionContext, document: vscode.
   );
 }
 
-// ---------- Writing-quality check (LLM-backed) ----------
+// ---------- Writing-quality check (rule-based + LLM-backed) ----------
 
 async function runWritingCheck(
   context: vscode.ExtensionContext,
@@ -366,58 +369,59 @@ async function runWritingCheck(
 ) {
   const config = vscode.workspace.getConfiguration('latexWritingCheck');
   const provider = config.get<LlmProvider>('provider', 'ollama');
-
-  if (!config.get<boolean>('enableLLM', true)) {
-    // Grammar/passive/wordy/unclear/uncited are fully LLM-backed with no
-    // local fallback -- there is nothing to check without an LLM backend, so
-    // don't waste a network round-trip per paragraph just to discard the result.
-    statusBarItem.text = '$(book) Writing check (local only)';
-    statusBarItem.tooltip = 'LLM checks disabled (latexWritingCheck.enableLLM is false) -- spelling and wording-overlap repetition still run.';
-    statusBarItem.show();
-    return;
-  }
-
+  const llmEnabled = config.get<boolean>('enableLLM', true);
   const ignored = getIgnoredSet(context);
-  statusBarItem.text = '$(sync~spin) Checking writing…';
-  statusBarItem.show();
+
+  if (llmEnabled) {
+    statusBarItem.text = '$(sync~spin) Checking writing…';
+    statusBarItem.show();
+  }
 
   const newDiagnostics: vscode.Diagnostic[] = [];
   let checkedCount = 0;
+  let llmUnavailable = false;
 
   for (const block of blocks) {
     if (options?.token?.isCancellationRequested) break;
-    try {
-      let issues = writingIssueCache.get(block.text);
-      if (!issues) {
-        issues = await checkParagraph(block.text, config, context.secrets, options?.token);
-        cacheSet(writingIssueCache, block.text, issues);
+
+    // Passive-voice and wordy-phrasing detection is local pattern-matching
+    // (ruleBasedChecks.ts) -- no LLM, no network call -- so it runs
+    // unconditionally, the same way spelling always runs regardless of
+    // latexWritingCheck.enableLLM / provider.
+    const ruleIssues = checkRuleBased(block.text).filter(issue =>
+      isCategoryEnabled(issue.category, config) &&
+      !ignored.has(issueSignature(issue.category, issue.quote))
+    );
+
+    let llmIssues: WritingIssue[] = [];
+    if (llmEnabled && !llmUnavailable) {
+      try {
+        let issues = writingIssueCache.get(block.text);
+        if (!issues) {
+          issues = await checkParagraph(block.text, config, context, options?.token);
+          cacheSet(writingIssueCache, block.text, issues);
+        }
+        llmIssues = issues.filter(issue =>
+          isCategoryEnabled(issue.category, config) &&
+          !ignored.has(issueSignature(issue.category, issue.quote))
+        );
+      } catch (err: any) {
+        if (options?.token?.isCancellationRequested) break;
+        // Grammar/unclear/uncited are fully LLM-backed with no local
+        // fallback, so a dead/misconfigured backend means there's nothing
+        // more to find for those for the rest of this run -- but
+        // rule-based passive/wordy still works regardless, so keep going
+        // for the remaining paragraphs instead of aborting the whole check.
+        llmUnavailable = true;
+        const message = err?.message ?? String(err);
+        statusBarItem.text = `$(warning) ${providerLabel(provider)} unavailable`;
+        statusBarItem.tooltip = `LaTeX Writing Check: ${message} (rule-based passive/wordy checks still ran.)`;
+        warnLlmOnce(message);
       }
-      const filtered = issues.filter(issue =>
-        isCategoryEnabled(issue.category, config) &&
-        !ignored.has(issueSignature(issue.category, issue.quote))
-      );
-      newDiagnostics.push(...issuesToDiagnostics(document, block, filtered));
-      checkedCount++;
-    } catch (err: any) {
-      if (options?.token?.isCancellationRequested) {
-        // User hit Cancel -- the in-flight request was aborted deliberately,
-        // not a real backend failure. Keep whatever we already found instead
-        // of discarding it, and don't warn about something the user chose.
-        break;
-      }
-      // Grammar/passive/wordy/uncited are fully LLM-backed with no local
-      // fallback (unlike repetition), so a dead/misconfigured backend means
-      // there's nothing more to find this pass. Leave whatever diagnostics
-      // are already showing untouched -- they may be from the last time the
-      // backend was reachable -- and surface the problem once via the
-      // status bar rather than an error dialog on every debounce tick while
-      // the user is mid-sentence.
-      const message = err?.message ?? String(err);
-      statusBarItem.text = `$(warning) ${providerLabel(provider)} unavailable`;
-      statusBarItem.tooltip = `LaTeX Writing Check: ${message}`;
-      warnLlmOnce(message);
-      return;
     }
+
+    newDiagnostics.push(...issuesToDiagnostics(document, block, [...ruleIssues, ...llmIssues]));
+    checkedCount++;
     options?.onItemDone?.();
   }
 
@@ -429,8 +433,15 @@ async function runWritingCheck(
   const kept = existing.filter(d => !checkedRanges.some(r => r.intersection(d.range)));
 
   writingDiagnostics.set(document.uri, [...kept, ...newDiagnostics]);
-  statusBarItem.text = '$(book) Writing check';
-  statusBarItem.tooltip = 'LaTeX Writing Check (LLM + spellcheck)';
+
+  if (!llmEnabled) {
+    statusBarItem.text = '$(book) Writing check (rule-based only)';
+    statusBarItem.tooltip = 'LLM checks disabled (latexWritingCheck.enableLLM is false) -- passive/wordy (rule-based), spelling, and wording-overlap repetition still run.';
+    statusBarItem.show();
+  } else if (!llmUnavailable) {
+    statusBarItem.text = '$(book) Writing check';
+    statusBarItem.tooltip = 'LaTeX Writing Check (LLM + rule-based + spellcheck)';
+  }
 }
 
 function issuesToDiagnostics(document: vscode.TextDocument, block: ParagraphBlock, issues: WritingIssue[]): vscode.Diagnostic[] {
@@ -512,7 +523,7 @@ async function runRepetitionCheck(
         llmIssues = cached;
       } else {
         try {
-          llmIssues = await checkSectionRepetition(group.map(b => b.text), config, context.secrets, options?.token);
+          llmIssues = await checkSectionRepetition(group.map(b => b.text), config, context, options?.token);
           cacheSet(repetitionIssueCache, cacheKey, llmIssues);
         } catch (err: any) {
           if (options?.token?.isCancellationRequested) break;

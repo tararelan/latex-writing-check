@@ -18,7 +18,8 @@
     "linter"
   ],
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.93.0",
+    "node": ">=20.0.0"
   },
   "categories": [
     "Linters",
@@ -75,30 +76,34 @@
           "type": "string",
           "enum": [
             "ollama",
+            "copilot",
+            "bundled",
             "openai",
             "claude",
             "gemini",
             "deepseek"
           ],
           "enumDescriptions": [
-            "Local model via Ollama -- free, private, needs Ollama installed",
+            "Local model via Ollama -- free, private, needs Ollama installed separately",
+            "GitHub Copilot via VS Code's built-in Language Model API -- needs Copilot Chat installed & signed in; no API key or latexWritingCheck.model needed",
+            "A small local model bundled with this extension -- free, private, downloads itself (~1GB, one-time) on first use; nothing else to install",
             "OpenAI API -- needs an API key (Set API Key command) and latexWritingCheck.model",
             "Anthropic Claude API -- needs an API key (Set API Key command) and latexWritingCheck.model",
             "Google Gemini API -- needs an API key (Set API Key command) and latexWritingCheck.model",
             "DeepSeek API -- needs an API key (Set API Key command) and latexWritingCheck.model"
           ],
           "default": "ollama",
-          "description": "Which LLM backend runs the grammar/passive/wordy/unclear/uncited/repetition checks. Ollama is local and free; the others send paragraph text to a third-party API using your own key -- see the README for what that means for privacy and cost before switching."
+          "description": "Which backend runs the grammar/unclear/uncited/repetition checks (passive voice and wordy phrasing are rule-based and always run, regardless of this setting -- see enablePassive/enableWordy). \"ollama\" and \"bundled\" are fully local and free; \"copilot\" uses VS Code's own Language Model API; the rest send paragraph text to a third-party API using your own key -- see docs/PROVIDERS.md for what that means for privacy and cost before switching to one of those."
         },
         "latexWritingCheck.confirmCloudCalls": {
           "type": "boolean",
           "default": true,
-          "description": "When latexWritingCheck.provider is a cloud provider, ask for confirmation before sending anything: once per VS Code session for the first automatic/typed check, and again before each \"Check Whole Document\" / \"Check Selected Text\" run naming how many calls it's about to make. Set false to skip both dialogs (e.g. once you're comfortable with the provider you've picked). Has no effect when provider is \"ollama\"."
+          "description": "When latexWritingCheck.provider sends text to a third party (copilot, openai, claude, gemini, or deepseek), ask for confirmation before sending anything: once per VS Code session for the first automatic/typed check, and again before each \"Check Whole Document\" / \"Check Selected Text\" run naming how many calls it's about to make. Set false to skip both dialogs (e.g. once you're comfortable with the provider you've picked). Has no effect for \"ollama\" or \"bundled\" -- both are fully local."
         },
         "latexWritingCheck.model": {
           "type": "string",
           "default": "qwen2.5:1.5b-instruct",
-          "description": "Model id for whichever provider is selected. For Ollama this is a model tag (default qwen2.5:1.5b-instruct -- must be pulled first with `ollama pull`). For every other provider there is NO default -- model names for OpenAI/Claude/Gemini/DeepSeek change too often to hardcode reliably, so you must set this explicitly to a model id that provider currently supports."
+          "description": "Model id for whichever provider is selected. For Ollama this is a model tag (default qwen2.5:1.5b-instruct -- must be pulled first with `ollama pull`). Not used at all for \"copilot\" (VS Code picks the model) or \"bundled\" (the model is pinned by the extension). For every cloud provider (openai/claude/gemini/deepseek) there is NO default -- model names change too often to hardcode reliably, so you must set this explicitly to a model id that provider currently supports."
         },
         "latexWritingCheck.ollamaUrl": {
           "type": "string",
@@ -136,22 +141,22 @@
         "latexWritingCheck.enableLLM": {
           "type": "boolean",
           "default": true,
-          "description": "Master switch for everything backed by an LLM (whichever latexWritingCheck.provider is selected): grammar, passive voice, wordy, unclear, and uncited-claim checks, plus the extra reused-wording pass on repetition. Set false to use this extension with no LLM backend configured at all -- spelling and the wording-overlap half of repetition (paraphrased/restated sentences) are local and keep working either way, and no network calls to any provider are made when this is off."
+          "description": "Master switch for everything backed by an LLM (whichever latexWritingCheck.provider is selected): grammar, unclear, and uncited-claim checks, plus the extra reused-wording pass on repetition. Set false to use this extension with no LLM backend configured at all -- spelling, passive/wordy (both rule-based), and the wording-overlap half of repetition (paraphrased/restated sentences) are all local and keep working either way, and no network calls to any provider are made when this is off."
         },
         "latexWritingCheck.enableGrammar": {
           "type": "boolean",
           "default": true,
-          "description": "Flag grammatical errors (subject-verb agreement, tense, articles, etc). Has no effect if enableLLM is false."
+          "description": "Flag grammatical errors (subject-verb agreement, tense, articles, etc). LLM-backed -- has no effect if enableLLM is false."
         },
         "latexWritingCheck.enablePassive": {
           "type": "boolean",
           "default": true,
-          "description": "Flag unnecessary passive voice. Has no effect if enableLLM is false."
+          "description": "Flag unnecessary passive voice. Rule-based (pattern matching, no LLM) -- always available, regardless of enableLLM or latexWritingCheck.provider."
         },
         "latexWritingCheck.enableWordy": {
           "type": "boolean",
           "default": true,
-          "description": "Flag wordy phrasing that could be tightened. Has no effect if enableLLM is false."
+          "description": "Flag wordy phrasing that could be tightened. Rule-based (a maintained phrase list, no LLM) -- always available, regardless of enableLLM or latexWritingCheck.provider."
         },
         "latexWritingCheck.enableUnclear": {
           "type": "boolean",
@@ -179,11 +184,12 @@
   "dependencies": {
     "dictionary-en": "^4.0.0",
     "dictionary-en-gb": "^3.0.0",
-    "nspell": "^2.1.5"
+    "nspell": "^2.1.5",
+    "node-llama-cpp": "^3.21.0"
   },
   "devDependencies": {
     "@types/node": "^20.x",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "^1.93.0",
     "typescript": "^5.x"
   }
 }

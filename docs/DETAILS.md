@@ -264,51 +264,46 @@ Status bar showing "\<provider\> unavailable", or an error mentioning
   and cloud-provider request/response handling against each provider's
   documented API shape with a mocked `fetch`, during development).
 
-## Alternatives considered / possible future directions
+## Zero-setup options (rule-based checks, Copilot, and a bundled model)
 
-The Ollama-or-your-own-API-key model this extension uses today is real
-friction for anyone who isn't already comfortable installing and running a
-local LLM server or signing up for a cloud API. Options considered for
-reducing that, not yet implemented:
+Three things reduce the "you must run Ollama or hand over an API key"
+friction, all shipped rather than just considered:
 
-1. **Ride on VS Code's built-in Language Model API (`vscode.lm`)** instead
-   of managing a backend ourselves. This API lets an extension request a
-   completion from whatever chat model provider is already registered in
-   the user's VS Code -- in practice, usually GitHub Copilot. For anyone
-   who already has Copilot set up (free for students via the GitHub
-   Student Developer Pack), this would mean zero setup at all for this
-   extension's writing-quality checks: no Ollama, no API key, nothing in
-   `latexWritingCheck.provider`. VS Code itself prompts the user for
-   consent the first time an extension asks to use another extension's
-   model, which is a built-in guardrail on top of what this extension
-   already does. Limitation: only helps users who already have a
-   `vscode.lm`-registered provider installed and signed in -- it's an
-   additional zero-friction path alongside Ollama/cloud keys, not a
-   replacement for either.
-2. **Bundle a local model directly in the extension** via something like
-   `node-llama-cpp` (native bindings to the same inference engine Ollama
-   runs on), auto-downloading a GGUF model file on first activation
-   (progress bar, cached in the extension's own storage) instead of
-   requiring a separate app, `ollama serve`, or any PATH setup. Keeps the
-   same free/local/private profile as Ollama while removing the "install
-   another program" step entirely. The real cost: native modules in a VS
-   Code extension need platform-specific prebuilt binaries (Windows/Mac/
-   Linux x Intel/ARM), which complicates packaging and `.vsix` size/
-   reliability meaningfully more than anything else in this project so
-   far -- a real undertaking, not a quick add.
-3. **A rule-based, no-LLM tier for the checks that don't actually need
-   semantic judgment.** Passive voice ("was/were/is/are + past
-   participle") and wordy phrasing (a maintained list like "due to the
-   fact that" -> "because") can both be caught reasonably well with plain
-   pattern matching, no model involved -- unlike grammar, unclear-sentence,
-   and uncited-claim detection, which genuinely need an LLM's judgment.
-   Adding this would mean two of the five writing-quality categories work
-   with zero setup, same as spelling does today, shrinking what's actually
-   gated behind Ollama/a cloud key. Cheap and independent of the other two
-   options -- could be done regardless of what happens with them.
+1. **Passive voice and wordy phrasing are now rule-based, not LLM-backed.**
+   Passive voice ("was/were/is/are + past participle") and wordy phrasing
+   (a maintained list like "due to the fact that" -> "because") are both
+   caught with plain pattern matching in `src/ruleBasedChecks.ts` -- no
+   model involved. These two run unconditionally, exactly like spelling
+   does, regardless of `latexWritingCheck.enableLLM` or which provider is
+   configured. Grammar, unclear-sentence, and uncited-claim detection still
+   need an LLM's judgment and stay gated behind `enableLLM`/`provider` as
+   before. Heuristic, not a parser -- it can have false positives/negatives;
+   dismiss a wrong one with the usual "Ignore this suggestion" quick fix.
+2. **`latexWritingCheck.provider: "copilot"`** rides on VS Code's built-in
+   Language Model API (`vscode.lm`) instead of this extension managing a
+   backend itself. If you already have GitHub Copilot Chat installed and
+   signed in (free for students via the GitHub Student Developer Pack),
+   this is zero setup: no Ollama, no API key, no `latexWritingCheck.model`
+   -- VS Code picks the concrete model and handles its own one-time
+   consent dialog for letting this extension use it. Only helps if you
+   already have a `vscode.lm`-registered provider signed in.
+3. **`latexWritingCheck.provider: "bundled"`** ships a local model path
+   that needs nothing installed separately. On first use it downloads a
+   small GGUF model (the same one Ollama defaults to, ~1GB, one-time, shown
+   with a cancellable progress notification) into the extension's own
+   storage and runs it via [`node-llama-cpp`](https://node-llama-cpp.withcat.ai/)
+   (native bindings to the same inference engine Ollama itself runs on).
+   Same free/private/local profile as Ollama, minus the "install another
+   program" step. The real cost is native-module packaging: `node-llama-cpp`
+   ships prebuilt binaries per platform (Windows/Mac/Linux x Intel/ARM/CUDA/
+   Vulkan variants) as optional dependencies, and `npm install` only fetches
+   the one matching whatever OS it's actually run on -- so the final
+   `npm install` (and any `vsce package`) for a build meant to run on
+   Windows must happen in a real Windows shell on that machine, not inside
+   a Linux-based sandbox/VM, or the bundled model won't have a matching
+   native binary to load at runtime.
 
-Recommendation if/when this gets picked up: option 1 first (smallest,
-no native-module packaging risk, covers a real chunk of the likely
-audience for a LaTeX-writing tool -- CS/AI students), option 3 as a cheap
-independent addition, option 2 as the eventual "real" fix if this proves
-worth the packaging complexity.
+None of the three touches Ollama or the cloud providers -- pick whichever
+`latexWritingCheck.provider` fits: `ollama` and `bundled` are fully local,
+`copilot` needs Copilot, and `openai`/`claude`/`gemini`/`deepseek` need your
+own API key (see docs/PROVIDERS.md).
