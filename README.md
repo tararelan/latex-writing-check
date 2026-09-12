@@ -7,18 +7,18 @@ code as prose.
 
 ## Features
 
-- **Spelling** — local, instant, dictionary-based (British or American
+- **Spelling** - local, instant, dictionary-based (British or American
   English). Skips LaTeX commands, math, tables, code listings, and
   non-prose command arguments automatically, so it only ever checks actual
   prose.
-- **Writing quality** — grammar, unnecessary passive voice, wordiness,
+- **Writing quality** - grammar, unnecessary passive voice, wordiness,
   unclear sentences, and factual claims with no nearby citation. Backed by
   an LLM: [Ollama](https://ollama.com) locally by default (free, private),
   or your own API key for OpenAI, Claude, Gemini, or DeepSeek.
-- **Repetition detection** — flags a point restated in different words
+- **Repetition detection** - flags a point restated in different words
   within the same section, both deterministically (no LLM needed) and,
   optionally, with an extra LLM pass for reused phrasing.
-- **Quick-fixes** for every squiggle via the lightbulb / `Ctrl+.` — add a
+- **Quick-fixes** for every squiggle via the lightbulb / `Ctrl+.` - add a
   word to your dictionary, accept a suggested correction, or dismiss a
   specific suggestion for good.
 
@@ -36,38 +36,37 @@ code as prose.
 
 ## Setup
 
-**Option A — Ollama (local, free):**
+**Option A - Ollama (local, free):**
 
 ```bash
 ollama pull qwen2.5:1.5b-instruct
 ```
 Make sure Ollama is running (`ollama serve`, or it runs as a background
-service after install). This is the default — nothing else to configure.
+service after install).
 
-**Option B — your own API key** for OpenAI, Claude, Gemini, or DeepSeek:
+**Option B - your own API key** for OpenAI, Claude, Gemini, or DeepSeek:
 
 1. Run **"LaTeX Writing Check: Set API Key"** from the command palette and
    paste your key (stored securely via VS Code, never in `settings.json`).
-2. Set `latexWritingCheck.provider` to that provider.
+2. Set `latexWritingCheck.provider` to that provider (`openai`, `claude`, `gemini`, `deepseek`).
 3. Set `latexWritingCheck.model` to a model id that provider currently
-   supports (there's no default for cloud providers — model names change
-   too often to hardcode reliably).
+   supports.
 
-Sending your document's text to a third-party API is a real tradeoff
-worth understanding before you flip that switch — see
+Sending your document's text to a third-party API is a tradeoff
+worth understanding before you flip that switch - see
 [`docs/PROVIDERS.md`](docs/PROVIDERS.md) for what each provider's policy
 actually says about training and data retention, and what guardrails this
 extension puts around it either way.
 
 ## Usage
 
-Open a `.tex` file — the current paragraph is checked automatically a
+Open a `.tex` file - the current paragraph is checked automatically a
 couple of seconds after you stop typing. From the command palette:
 
-- **Check Whole Document** — full pass: writing quality, spelling, and
+- **Check Whole Document** - full pass: writing quality, spelling, and
   repetition.
-- **Check Current Paragraph** — just the paragraph your cursor is in.
-- **Check Selected Text** — just what you've highlighted (repetition still
+- **Check Current Paragraph** - just the paragraph your cursor is in.
+- **Check Selected Text** - just what you've highlighted (repetition still
   compares against the whole document, since it needs that context).
 
 To act on a squiggle, put your cursor in it and press `Ctrl+.` (`Cmd+.` on
@@ -88,13 +87,13 @@ Settings (`Ctrl+,` → search "latex writing check"):
 | `latexWritingCheck.checkOnType` / `checkOnSave` | `true` | Automatic checking triggers |
 | `latexWritingCheck.enableGrammar` / `enablePassive` / `enableWordy` / `enableUnclear` / `enableUncited` / `enableRepetition` | `true` | Per-category on/off |
 
-API keys aren't a setting — use **"LaTeX Writing Check: Set API Key"** /
+API keys aren't a setting - use **"LaTeX Writing Check: Set API Key"** /
 **"...: Clear API Key"** from the command palette.
 
 ## Known limitations
 
 - Only British and American English dictionaries are included; other
-  regional variants aren't wired up yet.
+  regional variants aren't wired yet.
 - Custom dictionary is a flat accept-list (via the quick-fix), not
   imported from your `.bib`/existing files.
 - No automated test suite yet.
