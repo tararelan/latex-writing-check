@@ -84,7 +84,21 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('latexWritingCheck.addWordToDictionary', async (word: string, docUri: vscode.Uri) => {
       await addWordToDictionary(context, word);
       const doc = vscode.workspace.textDocuments.find(d => d.uri.toString() === docUri.toString());
-      if (doc) await runSpellCheck(context, doc, new vscode.Range(0, 0, doc.lineCount - 1, 0));
+      if (doc) {
+        // Removing every currently-shown diagnostic for this exact word is
+        // instant. Re-running spellcheckRange over the whole document just
+        // to clear one word's squiggles (the previous behavior) was slow on
+        // a large file -- every *other* still-misspelled word in it pays
+        // for a fresh nspell suggest() call during that rescan, which adds
+        // up fast on a document with a lot of typos/unrecognized jargon.
+        // The word is already registered with nspell (addWordToDictionary
+        // above calls sp.add()), so a future check won't re-flag it anyway
+        // -- this just clears what's already on screen, the same way
+        // ignoreSuggestion does below.
+        const signature = issueSignature('spelling', word);
+        const existingSpell = spellDiagnostics.get(doc.uri) ?? [];
+        spellDiagnostics.set(doc.uri, existingSpell.filter(d => d.code !== signature));
+      }
     }),
     vscode.commands.registerCommand('latexWritingCheck.ignoreSuggestion', async (signature: string, docUri: vscode.Uri) => {
       await addIgnored(context, signature);
@@ -554,7 +568,7 @@ async function runSpellCheck(context: vscode.ExtensionContext, document: vscode.
   const filtered = misspellings.filter(m => !ignored.has(issueSignature('spelling', m.word)));
 
   const newDiagnostics = filtered.map(m => {
-    const suggestionText = m.suggestions.length ? ` (try: ${m.suggestions.slice(0, 3).join(', ')})` : '';
+    const suggestionText = m.suggestions.length ? ` (try: ${m.suggestions.slice(0, 5).join(', ')})` : '';
     const diagnostic = new vscode.Diagnostic(
       m.range,
       `Possible misspelling: "${m.word}"${suggestionText}`,
