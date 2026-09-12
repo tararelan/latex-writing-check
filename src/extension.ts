@@ -94,10 +94,19 @@ export function activate(context: vscode.ExtensionContext) {
         // The word is already registered with nspell (addWordToDictionary
         // above calls sp.add()), so a future check won't re-flag it anyway
         // -- this just clears what's already on screen, the same way
-        // ignoreSuggestion does below.
-        const signature = issueSignature('spelling', word);
+        // ignoreSuggestion does below. Matched case-insensitively: nspell
+        // now always registers the lowercase form (see addWordToDictionary),
+        // so "Bijection" and "bijection" are both valid from here on and
+        // both should disappear now, not just whichever exact-case one was
+        // clicked -- otherwise the other case's squiggle would sit there
+        // until the next full recheck even though it's no longer a real issue.
+        const wordLower = word.toLowerCase();
         const existingSpell = spellDiagnostics.get(doc.uri) ?? [];
-        spellDiagnostics.set(doc.uri, existingSpell.filter(d => d.code !== signature));
+        spellDiagnostics.set(doc.uri, existingSpell.filter(d => {
+          const code = String(d.code ?? '');
+          if (!code.startsWith('spelling::')) return true;
+          return code.slice('spelling::'.length).toLowerCase() !== wordLower;
+        }));
       }
     }),
     vscode.commands.registerCommand('latexWritingCheck.ignoreSuggestion', async (signature: string, docUri: vscode.Uri) => {

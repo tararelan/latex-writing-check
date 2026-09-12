@@ -115,11 +115,20 @@ export async function getSpellChecker(context: vscode.ExtensionContext): Promise
 }
 
 export async function addWordToDictionary(context: vscode.ExtensionContext, word: string): Promise<void> {
+  // nspell only folds case *downward* from a lowercase dictionary entry --
+  // sp.add('bijection') makes 'Bijection' and 'BIJECTION' correct too, but
+  // sp.add('Bijection') does NOT make lowercase 'bijection' correct. Since
+  // which case you happen to click "Add to dictionary" on is arbitrary
+  // (whichever occurrence -- sentence-initial capitalized, or the far more
+  // common lowercase mid-sentence form -- got flagged and quick-fixed
+  // first), always registering the lowercase form means every case variant
+  // is accepted afterwards regardless of which one triggered the add.
+  const normalized = word.toLowerCase();
   const sp = await getSpellChecker(context);
-  sp.add(word);
+  sp.add(normalized);
   const custom = context.globalState.get<string[]>('latexWritingCheck.customDictionary', []);
-  if (!custom.includes(word)) {
-    custom.push(word);
+  if (!custom.includes(normalized)) {
+    custom.push(normalized);
     await context.globalState.update('latexWritingCheck.customDictionary', custom);
   }
 }
